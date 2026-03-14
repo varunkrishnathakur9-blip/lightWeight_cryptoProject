@@ -1,4 +1,9 @@
-"""Pure-Python ASCON utilities used by the secure channel prototype."""
+"""Pure-Python ASCON-128 AEAD and sponge primitives.
+
+This module exposes Stage 2 prompt-compatible function names:
+- encrypt(...)
+- decrypt(...)
+"""
 
 from __future__ import annotations
 
@@ -29,8 +34,8 @@ ROUND_CONSTANTS = [
 ]
 
 
-def _rotr(x: int, n: int) -> int:
-    return ((x >> n) | (x << (64 - n))) & MASK64
+def _rotr(value: int, nbits: int) -> int:
+    return ((value >> nbits) | (value << (64 - nbits))) & MASK64
 
 
 def _pad(block: bytes, rate: int = RATE_BYTES) -> bytes:
@@ -39,7 +44,8 @@ def _pad(block: bytes, rate: int = RATE_BYTES) -> bytes:
     return block + b"\x80" + b"\x00" * (rate - len(block) - 1)
 
 
-def _ascon_permutation(state: list[int], rounds: int) -> None:
+def permute_state(state: list[int], rounds: int = 12) -> None:
+    """Apply ASCON permutation to a 320-bit state."""
     for constant in ROUND_CONSTANTS[12 - rounds :]:
         state[2] ^= constant
 
@@ -84,22 +90,13 @@ def _iter_full_blocks(data: bytes, block_size: int) -> Iterable[bytes]:
 
 
 def generate_nonce() -> bytes:
-    """Generate a random ASCON nonce."""
+    """Generate a random 16-byte nonce for ASCON-128."""
     return os.urandom(NONCE_BYTES)
 
 
-def ascon_encrypt(key: bytes, nonce: bytes, ad: bytes, plaintext: bytes) -> tuple[bytes, bytes]:
-    """Encrypt plaintext using ASCON-128 AEAD.
-
-    Args:
-        key: 16-byte key.
-        nonce: 16-byte nonce.
-        ad: Associated data (authenticated only).
-        plaintext: Plaintext payload.
-
-    Returns:
-        Tuple of (ciphertext, tag).
-    """
+def _encrypt_detached(
+    key: bytes, nonce: bytes, plaintext: bytes, associated_data: bytes
+) -> tuple[bytes, bytes]:
     if len(key) != KEY_BYTES:
         raise ValueError("ASCON-128 requires a 16-byte key.")
     if len(nonce) != NONCE_BYTES:
@@ -111,24 +108,24 @@ def ascon_encrypt(key: bytes, nonce: bytes, ad: bytes, plaintext: bytes) -> tupl
     n1 = int.from_bytes(nonce[8:], "big")
 
     state = [ASCON_128_IV, k0, k1, n0, n1]
-    _ascon_permutation(state, 12)
+    permute_state(state, 12)
     state[3] ^= k0
     state[4] ^= k1
 
-    if ad:
-        for block in _iter_full_blocks(ad, RATE_BYTES):
+    if associated_data:
+        for block in _iter_full_blocks(associated_data, RATE_BYTES):
             state[0] ^= int.from_bytes(block, "big")
-            _ascon_permutation(state, 6)
-        last_ad = ad[(len(ad) // RATE_BYTES) * RATE_BYTES :]
+            permute_state(state, 6)
+        last_ad = associated_data[(len(associated_data) // RATE_BYTES) * RATE_BYTES :]
         state[0] ^= int.from_bytes(_pad(last_ad), "big")
-        _ascon_permutation(state, 6)
+        permute_state(state, 6)
     state[4] ^= 1
 
     ciphertext = bytearray()
     for block in _iter_full_blocks(plaintext, RATE_BYTES):
         state[0] ^= int.from_bytes(block, "big")
         ciphertext.extend(state[0].to_bytes(RATE_BYTES, "big"))
-        _ascon_permutation(state, 6)
+        permute_state(state, 6)
 
     last_plaintext = plaintext[(len(plaintext) // RATE_BYTES) * RATE_BYTES :]
     state[0] ^= int.from_bytes(_pad(last_plaintext), "big")
@@ -136,22 +133,22 @@ def ascon_encrypt(key: bytes, nonce: bytes, ad: bytes, plaintext: bytes) -> tupl
 
     state[1] ^= k0
     state[2] ^= k1
-    _ascon_permutation(state, 12)
+    permute_state(state, 12)
     state[3] ^= k0
     state[4] ^= k1
-
     tag = state[3].to_bytes(8, "big") + state[4].to_bytes(8, "big")
     return bytes(ciphertext), tag
 
 
-def ascon_decrypt(key: bytes, nonce: bytes, ad: bytes, ciphertext: bytes, tag: bytes) -> bytes:
-    """Decrypt ciphertext using ASCON-128 AEAD and verify authentication tag."""
+def _decrypt_detached(
+    key: bytes, nonce: bytes, ciphertext: bytes, associated_data: bytes, authentication_tag: bytes
+) -> bytes:
     if len(key) != KEY_BYTES:
         raise ValueError("ASCON-128 requires a 16-byte key.")
     if len(nonce) != NONCE_BYTES:
         raise ValueError("ASCON-128 requires a 16-byte nonce.")
-    if len(tag) != TAG_BYTES:
-        raise ValueError("ASCON-128 requires a 16-byte tag.")
+    if len(authentication_tag) != TAG_BYTES:
+        raise ValueError("ASCON-128 requires a 16-byte authentication tag.")
 
     k0 = int.from_bytes(key[:8], "big")
     k1 = int.from_bytes(key[8:], "big")
@@ -159,17 +156,17 @@ def ascon_decrypt(key: bytes, nonce: bytes, ad: bytes, ciphertext: bytes, tag: b
     n1 = int.from_bytes(nonce[8:], "big")
 
     state = [ASCON_128_IV, k0, k1, n0, n1]
-    _ascon_permutation(state, 12)
+    permute_state(state, 12)
     state[3] ^= k0
     state[4] ^= k1
 
-    if ad:
-        for block in _iter_full_blocks(ad, RATE_BYTES):
+    if associated_data:
+        for block in _iter_full_blocks(associated_data, RATE_BYTES):
             state[0] ^= int.from_bytes(block, "big")
-            _ascon_permutation(state, 6)
-        last_ad = ad[(len(ad) // RATE_BYTES) * RATE_BYTES :]
+            permute_state(state, 6)
+        last_ad = associated_data[(len(associated_data) // RATE_BYTES) * RATE_BYTES :]
         state[0] ^= int.from_bytes(_pad(last_ad), "big")
-        _ascon_permutation(state, 6)
+        permute_state(state, 6)
     state[4] ^= 1
 
     plaintext = bytearray()
@@ -178,7 +175,7 @@ def ascon_decrypt(key: bytes, nonce: bytes, ad: bytes, ciphertext: bytes, tag: b
         p_int = state[0] ^ c_int
         plaintext.extend(p_int.to_bytes(RATE_BYTES, "big"))
         state[0] = c_int
-        _ascon_permutation(state, 6)
+        permute_state(state, 6)
 
     last_ciphertext = ciphertext[(len(ciphertext) // RATE_BYTES) * RATE_BYTES :]
     state_bytes = state[0].to_bytes(RATE_BYTES, "big")
@@ -187,46 +184,66 @@ def ascon_decrypt(key: bytes, nonce: bytes, ad: bytes, ciphertext: bytes, tag: b
     )
 
     state_bytes_mut = bytearray(state_bytes)
-    for idx, value in enumerate(last_ciphertext):
-        state_bytes_mut[idx] = value
+    for index, value in enumerate(last_ciphertext):
+        state_bytes_mut[index] = value
     state_bytes_mut[len(last_ciphertext)] ^= 0x80
     state[0] = int.from_bytes(state_bytes_mut, "big")
 
     state[1] ^= k0
     state[2] ^= k1
-    _ascon_permutation(state, 12)
+    permute_state(state, 12)
     state[3] ^= k0
     state[4] ^= k1
     expected_tag = state[3].to_bytes(8, "big") + state[4].to_bytes(8, "big")
-
-    if not hmac.compare_digest(expected_tag, tag):
-        raise ValueError("ASCON authentication tag verification failed.")
+    if not hmac.compare_digest(expected_tag, authentication_tag):
+        raise ValueError("ASCON tag verification failed.")
     return bytes(plaintext)
 
 
-def ascon_hash(data: bytes, out_len: int = 32) -> bytes:
-    """ASCON sponge-style hash/XOF for lightweight KDF operations.
+def encrypt(
+    key: bytes, nonce: bytes, plaintext: bytes, associated_data: bytes
+) -> tuple[bytes, bytes]:
+    """Encrypt using ASCON-128 and return detached ciphertext + tag."""
+    return _encrypt_detached(key, nonce, plaintext, associated_data)
 
-    This function uses an ASCON permutation-based sponge construction to provide
-    deterministic pseudo-random output suitable for key derivation in this prototype.
+
+def decrypt(
+    key: bytes,
+    nonce: bytes,
+    ciphertext: bytes,
+    associated_data: bytes,
+    authentication_tag: bytes | None = None,
+) -> bytes:
+    """Decrypt using ASCON-128.
+
+    Prompt-compatible four-argument usage is supported by passing
+    `ciphertext = raw_ciphertext || tag` and leaving `authentication_tag=None`.
     """
-    if out_len <= 0:
-        raise ValueError("out_len must be positive.")
+    if authentication_tag is None:
+        if len(ciphertext) < TAG_BYTES:
+            raise ValueError("Ciphertext is too short to contain an authentication tag.")
+        ciphertext, authentication_tag = ciphertext[:-TAG_BYTES], ciphertext[-TAG_BYTES:]
+    return _decrypt_detached(key, nonce, ciphertext, associated_data, authentication_tag)
+
+
+def sponge_hash(data: bytes, output_length: int = 32) -> bytes:
+    """ASCON sponge absorb-permute-squeeze construction."""
+    if output_length <= 0:
+        raise ValueError("output_length must be positive.")
 
     state = [ASCON_HASH_IV, 0, 0, 0, 0]
-    _ascon_permutation(state, 12)
+    permute_state(state, 12)
 
     for block in _iter_full_blocks(data, RATE_BYTES):
         state[0] ^= int.from_bytes(block, "big")
-        _ascon_permutation(state, 12)
+        permute_state(state, 12)
 
-    last = data[(len(data) // RATE_BYTES) * RATE_BYTES :]
-    state[0] ^= int.from_bytes(_pad(last), "big")
-    _ascon_permutation(state, 12)
+    last_block = data[(len(data) // RATE_BYTES) * RATE_BYTES :]
+    state[0] ^= int.from_bytes(_pad(last_block), "big")
+    permute_state(state, 12)
 
-    out = bytearray()
-    while len(out) < out_len:
-        out.extend(state[0].to_bytes(8, "big"))
-        _ascon_permutation(state, 12)
-    return bytes(out[:out_len])
-
+    output = bytearray()
+    while len(output) < output_length:
+        output.extend(state[0].to_bytes(RATE_BYTES, "big"))
+        permute_state(state, 12)
+    return bytes(output[:output_length])

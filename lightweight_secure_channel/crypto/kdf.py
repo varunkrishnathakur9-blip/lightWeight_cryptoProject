@@ -1,55 +1,71 @@
-"""Key-derivation functions for session key material."""
+"""Sponge-based lightweight KDF for session material derivation."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from lightweight_secure_channel.crypto.ascon_cipher import permute_state
 
-from lightweight_secure_channel.crypto.ascon_cipher import ascon_hash
+RATE_BYTES = 8
 
 
 @dataclass(frozen=True)
 class KeyMaterial:
-    """Derived session key material."""
+    """Derived per-session keys and nonce seed."""
 
     session_key: bytes
     auth_key: bytes
     nonce_seed: bytes
 
 
-def hkdf_sha256(shared_secret: bytes) -> KeyMaterial:
-    """Baseline key derivation using HKDF-SHA256."""
-    okm = HKDF(
-        algorithm=hashes.SHA256(),
-        length=48,
-        salt=None,
-        info=b"LSCP-HKDF-SHA256",
-    ).derive(shared_secret)
+def _pad(block: bytes, rate: int = RATE_BYTES) -> bytes:
+    if len(block) >= rate:
+        raise ValueError("Padding requires a partial block.")
+    return block + b"\x80" + b"\x00" * (rate - len(block) - 1)
+
+
+def absorb(shared_secret: bytes, context_info: bytes = b"") -> list[int]:
+    """Absorb phase of the sponge-based KDF."""
+    state = [0x00400C0000000100, 0, 0, 0, 0]
+    permute_state(state, rounds=12)
+    payload = b"LSCP-SPONGE-KDF" + context_info + shared_secret
+
+    full_blocks = len(payload) // RATE_BYTES
+    for block_index in range(full_blocks):
+        block = payload[block_index * RATE_BYTES : (block_index + 1) * RATE_BYTES]
+        state[0] ^= int.from_bytes(block, "big")
+        permute_state(state, rounds=12)
+
+    remainder = payload[full_blocks * RATE_BYTES :]
+    state[0] ^= int.from_bytes(_pad(remainder), "big")
+    return state
+
+
+def permute(state: list[int]) -> list[int]:
+    """Permute phase of the sponge construction."""
+    permute_state(state, rounds=12)
+    return state
+
+
+def squeeze(state: list[int], output_length: int = 48) -> bytes:
+    """Squeeze phase of the sponge construction."""
+    if output_length <= 0:
+        raise ValueError("output_length must be positive.")
+
+    output = bytearray()
+    while len(output) < output_length:
+        output.extend(state[0].to_bytes(RATE_BYTES, "big"))
+        permute_state(state, rounds=12)
+    return bytes(output[:output_length])
+
+
+def derive_keys(shared_secret: bytes, context_info: bytes = b"") -> KeyMaterial:
+    """Derive session keys from shared secret and optional context."""
+    state = absorb(shared_secret=shared_secret, context_info=context_info)
+    permute(state)
+    material = squeeze(state, output_length=48)
     return KeyMaterial(
-        session_key=okm[:16],
-        auth_key=okm[16:32],
-        nonce_seed=okm[32:48],
+        session_key=material[:16],
+        auth_key=material[16:32],
+        nonce_seed=material[32:48],
     )
-
-
-def ascon_kdf(shared_secret: bytes) -> KeyMaterial:
-    """Lightweight ASCON sponge-based KDF."""
-    xof_output = ascon_hash(b"LSCP-ASCON-KDF" + shared_secret, out_len=48)
-    return KeyMaterial(
-        session_key=xof_output[:16],
-        auth_key=xof_output[16:32],
-        nonce_seed=xof_output[32:48],
-    )
-
-
-def derive_session_keys(shared_secret: bytes, mode: str = "ascon") -> KeyMaterial:
-    """Derive session keys with either HKDF-SHA256 or ASCON-based KDF."""
-    normalized_mode = mode.lower()
-    if normalized_mode == "hkdf":
-        return hkdf_sha256(shared_secret)
-    if normalized_mode == "ascon":
-        return ascon_kdf(shared_secret)
-    raise ValueError(f"Unsupported KDF mode: {mode}")
-

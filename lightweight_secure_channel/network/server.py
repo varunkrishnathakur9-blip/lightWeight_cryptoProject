@@ -1,4 +1,4 @@
-"""TCP gateway server for the lightweight secure channel protocol."""
+"""Gateway server implementation for lightweight secure channel."""
 
 from __future__ import annotations
 
@@ -7,46 +7,32 @@ import threading
 from typing import Optional
 
 from lightweight_secure_channel.protocol.handshake import HandshakeResult, perform_server_handshake
-from lightweight_secure_channel.protocol.secure_channel import ReplayError, SecureChannel
+from lightweight_secure_channel.protocol.secure_channel import (
+    ReplayProtectionError,
+    SecureChannel,
+    receive_secure_message,
+    send_secure_message,
+)
 from lightweight_secure_channel.protocol.session_manager import SessionManager
-from lightweight_secure_channel.utils.logger import configure_logger
 
 
 class GatewayServer:
-    """Gateway endpoint implementing secure channel handshakes and packet exchange."""
+    """Server-side endpoint supporting full and resumed secure sessions."""
 
     def __init__(
         self,
         host: str = "127.0.0.1",
-        port: int = 9009,
-        kdf_mode: str = "ascon",
+        port: int = 9010,
         session_timeout: int = 300,
     ) -> None:
         self.host = host
         self.port = port
-        self.kdf_mode = kdf_mode
         self.session_manager = SessionManager(session_timeout=session_timeout)
-        self.logger = configure_logger("lscp.server")
         self._running = threading.Event()
         self._server_socket: Optional[socket.socket] = None
 
-    def start_in_thread(self) -> threading.Thread:
-        """Start server in a daemon thread."""
-        thread = threading.Thread(target=self.serve_forever, daemon=True)
-        thread.start()
-        return thread
-
-    def stop(self) -> None:
-        """Request server shutdown."""
-        self._running.clear()
-        if self._server_socket is not None:
-            try:
-                self._server_socket.close()
-            except OSError:
-                pass
-
-    def serve_forever(self) -> None:
-        """Run accept loop until stopped."""
+    def listen(self) -> None:
+        """Listen for connections and handle each sequentially."""
         self._running.set()
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             self._server_socket = server_socket
@@ -54,51 +40,68 @@ class GatewayServer:
             server_socket.bind((self.host, self.port))
             server_socket.listen()
             server_socket.settimeout(1.0)
-            self.logger.info("Gateway listening on %s:%s", self.host, self.port)
 
             while self._running.is_set():
                 try:
-                    conn, addr = server_socket.accept()
+                    connection, _ = server_socket.accept()
                 except socket.timeout:
                     continue
                 except OSError:
                     break
+                self._handle_connection(connection)
 
-                self.logger.info("Accepted connection from %s:%s", addr[0], addr[1])
-                self._handle_connection(conn)
+    def start_in_thread(self) -> threading.Thread:
+        """Start listener in a daemon thread."""
+        thread = threading.Thread(target=self.listen, daemon=True)
+        thread.start()
+        return thread
 
-    def _handle_connection(self, conn: socket.socket) -> None:
-        with conn:
-            stream = conn.makefile("rwb")
+    def stop(self) -> None:
+        """Stop listener loop."""
+        self._running.clear()
+        if self._server_socket is not None:
             try:
-                handshake: HandshakeResult = perform_server_handshake(
-                    stream=stream,
-                    session_manager=self.session_manager,
-                    kdf_mode=self.kdf_mode,
-                )
-                channel = SecureChannel(
-                    session_id=handshake.session_id,
-                    key_material=handshake.key_material,
-                )
-                self.logger.info(
-                    "Handshake complete (session_id=%s resumed=%s)",
-                    handshake.session_id,
-                    handshake.resumed,
-                )
+                self._server_socket.close()
+            except OSError:
+                pass
 
-                while True:
-                    try:
-                        plaintext = channel.receive_secure_message(stream)
-                    except EOFError:
-                        break
-                    except ReplayError as error:
-                        self.logger.warning("Dropped replayed packet: %s", error)
-                        break
+    def perform_handshake(self, stream) -> tuple[HandshakeResult, SecureChannel]:
+        """Perform handshake and prepare secure channel for one connection."""
+        result = perform_server_handshake(
+            stream=stream,
+            session_manager=self.session_manager,
+            context_info=b"iot-device->gateway",
+        )
+        session_record = self.session_manager.get_session(result.session_id)
+        start_counter = session_record.nonce_counter if session_record is not None else 0
+        channel = SecureChannel(
+            session_id=result.session_id,
+            key_material=result.key_material,
+            start_nonce_counter=start_counter,
+        )
+        return result, channel
 
-                    message = plaintext.decode("utf-8")
-                    if message == "__close__":
-                        break
-                    channel.send_secure_message(stream, f"ACK:{message}")
+    def receive_encrypted_packets(self, stream, channel: SecureChannel) -> None:
+        """Receive encrypted packets and return encrypted acknowledgements."""
+        while True:
+            try:
+                plaintext = receive_secure_message(stream, channel)
+            except EOFError:
+                break
+            except ReplayProtectionError:
+                break
+
+            if plaintext == b"__close__":
+                break
+            send_secure_message(stream, channel, b"ACK:" + plaintext)
+
+        self.session_manager.advance_nonce_counter(channel.session_id, channel.nonce_counter)
+
+    def _handle_connection(self, connection: socket.socket) -> None:
+        with connection:
+            stream = connection.makefile("rwb")
+            try:
+                _, channel = self.perform_handshake(stream)
+                self.receive_encrypted_packets(stream, channel)
             finally:
                 stream.close()
-

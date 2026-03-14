@@ -1,9 +1,3 @@
-"""Lightweight secure channel prototype for constrained IoT deployments."""
+"""Lightweight secure communication protocol package."""
 
-__all__ = [
-    "crypto",
-    "network",
-    "protocol",
-    "utils",
-]
-
+__all__ = ["crypto", "protocol", "network"]

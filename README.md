@@ -1,126 +1,162 @@
-# Lightweight Secure Communication Protocol for IoT Using ASCON and Optimized ECC
+# Lightweight Secure Communication Protocol for IoT using ASCON and Optimized ECC
 
-## Project Overview
-This repository contains a research-grade Python prototype of a lightweight secure channel for IoT communication.
-It combines:
+This repository contains a research-quality Python prototype implementing a lightweight secure channel for IoT device-to-gateway communication.
 
-- ECDH key exchange on `secp256r1`
-- ASCON-128 authenticated encryption (pure Python)
-- Lightweight key derivation (ASCON sponge KDF) and baseline HKDF-SHA256
-- Session resumption with token validation and expiration
-- Benchmarking against AES-GCM with plot generation
+## Implemented Design Goals
 
-## Architecture
-Protocol model:
+- ECC key exchange using ECDH on `secp256r1`
+- ASCON-128 authenticated encryption
+- Sponge-based lightweight KDF (absorb -> permute -> squeeze)
+- DTLS-CID-inspired lightweight session resumption
+- TCP client/server simulation
 
-1. `ClientHello`
-2. `ServerHello`
-3. `KeyExchange` (ECC public key delivery)
-4. `SessionKeyDerivation` (derived key hash confirmation)
-5. `HandshakeComplete`
+## Repository Structure
 
-Data channel:
-
-- Encrypted packets with ASCON AEAD
-- Associated data includes `session_id`, `sequence_number`, and protocol version
-- Replay prevention via monotonic sequence number checks
-- Deterministic per-message nonce generation from session `nonce_seed`
-
-Session resumption:
-
-- Session token format:
-  - `session_id`
-  - `derived_key_hash`
-  - `timestamp`
-  - `nonce_seed`
-- Default timeout: 5 minutes (`300` seconds)
-
-## Project Structure
 ```text
 lightweight_secure_channel/
   crypto/
     ecc.py
     ascon_cipher.py
     kdf.py
+    nonce_manager.py
   protocol/
     handshake.py
+    packet.py
     secure_channel.py
     session_manager.py
   network/
     client.py
     server.py
-  utils/
-    benchmark.py
-    metrics.py
-    logger.py
+
+demo/
+  main_demo.py
+
+experiments/
+  baseline_protocol.py
+  run_evaluation.py
+  generate_paper.py
+
 tests/
-  test_handshake.py
-  test_encryption.py
-  test_session_resumption.py
-main_demo.py
+  test_ecc.py
+  test_ascon.py
+  test_kdf.py
+  test_protocol.py
+
+results/
+  graphs/
+  tables/
+  paper_draft.md
+
+requirements.txt
 README.md
 ```
 
-## Setup
-Python 3.10+ is required.
+## Cryptographic Modules
 
-Install dependencies:
+### ECC (`crypto/ecc.py`)
+- `generate_keypair()`
+- `serialize_public_key()`
+- `deserialize_public_key()`
+- `compute_shared_secret()`
+
+### ASCON AEAD (`crypto/ascon_cipher.py`)
+- `encrypt(key, nonce, plaintext, associated_data)`
+- `decrypt(key, nonce, ciphertext, associated_data)`
+
+`decrypt` also supports detached tags by passing optional `authentication_tag`.
+
+### Sponge KDF (`crypto/kdf.py`)
+- `absorb(shared_secret, context_info)`
+- `permute(state)`
+- `squeeze(state, output_length)`
+- `derive_keys(shared_secret, context_info)` -> `(session_key, auth_key, nonce_seed)`
+
+### Nonce Manager (`crypto/nonce_manager.py`)
+Deterministic nonce generation from `nonce_seed + sequence_number` for unique nonces per packet.
+
+## Protocol and Session Model
+
+### Handshake (`protocol/handshake.py`)
+- Optimized ECC handshake using precomputed ephemeral key pools
+- Reduced message rounds via combined server response
+- Finished-message transcript verification
+- Session resumption using persistent connection IDs
+
+### Session Manager (`protocol/session_manager.py`)
+Session state stores:
+- `session_id`
+- `session_key`
+- `timestamp`
+- `nonce_counter`
+
+plus `auth_key`, `nonce_seed`, and `connection_id` for resumed secure channels.
+
+### Packet Format (`protocol/packet.py`)
+Each encrypted packet includes:
+- `protocol_version`
+- `session_id`
+- `sequence_number`
+- `nonce`
+- `ciphertext`
+- `authentication_tag`
+
+## Network Layer
+
+### Server (`network/server.py`)
+- `listen()`
+- `perform_handshake()`
+- `receive_encrypted_packets()`
+
+### Client (`network/client.py`)
+- `connect()`
+- `perform_handshake()`
+- `resume_session_if_available()`
+- `send_encrypted_messages()`
+
+## Demo
+
+Run:
 
 ```bash
-pip install cryptography psutil matplotlib
+python demo/main_demo.py
 ```
 
-## Run Demo
+The demo shows:
+1. Handshake
+2. Encrypted communication
+3. Session resumption
+4. Packet encryption/decryption
+
+## Experimental Evaluation
+
+Run:
+
 ```bash
-python main_demo.py
+python experiments/run_evaluation.py
 ```
 
-Demo flow:
+Outputs:
+- `results/graphs/`:
+  - `handshake_latency_comparison.png`
+  - `encryption_latency_comparison.png`
+  - `memory_usage_comparison.png`
+  - `throughput_comparison.png`
+- `results/tables/`:
+  - `metrics_detailed.csv`
+  - `metrics_summary.csv`
+  - `metrics_summary.md`
+- `results/paper_draft.md`
 
-1. Starts gateway server
-2. Starts IoT client and performs full handshake
-3. Sends encrypted messages
-4. Reconnects and performs session resumption
-5. Runs benchmark (100 encrypted messages, ASCON vs AES-GCM)
+## Tests
 
-Example output:
+Run:
 
-```text
-Handshake time: 45.12 ms
-Session resumed: False
-Resumed handshake time: 8.43 ms
-Session resumed: True
-Encryption time (ASCON mean): 2.04 ms
-```
-
-## Run Tests
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-## Benchmarking
-The benchmark module reports:
-
-- Full handshake latency
-- Resumed handshake latency
-- ASCON encryption/decryption latency
-- AES-GCM encryption/decryption latency
-- Throughput comparison
-- Memory delta and process CPU utilization
-
-Generated plots are saved to `benchmark_results/`:
-
-- `encryption_latency.png`
-- `handshake_latency.png`
-- `memory_usage.png`
-- `throughput.png`
-
-## Security Notes
-This prototype demonstrates core protocol mechanisms for research and evaluation.
-Before production usage:
-
-- Add secure key storage (HSM/TPM/secure element where possible)
-- Introduce robust anti-replay windows for out-of-order delivery scenarios
-- Harden token protection and transport-level endpoint authentication
-- Add formal verification and extended interoperability testing
-
+Test suite covers:
+- ECC correctness
+- ASCON encrypt/decrypt and tag verification
+- Sponge KDF behavior
+- End-to-end protocol with session resumption
