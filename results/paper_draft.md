@@ -50,7 +50,7 @@ Encryption latency regressed by 25242.02% (higher than baseline).
 Memory usage regressed by 346.43% (higher than baseline).
 Throughput regressed by 99.63% (lower than baseline).
 In this prototype, backend implementation and protocol orchestration both shape performance: AES-GCM and HKDF rely on highly optimized native libraries, while the proposed stack uses native ASCON primitives plus Python protocol logic. Therefore, measured gaps on host systems should be interpreted as full-system outcomes (crypto backend + handshake/state machine + serialization/I/O), not raw algorithmic limits.
-Native ASCON backend detected for this run: `native:ascon`.
+ASCON backend could not be verified at draft-generation time (ModuleNotFoundError). Ensure native backend is installed and active.
 
 ## Security Analysis
 The protocol enforces authenticated encryption, transcript verification in handshakes, deterministic nonce derivation, and sequence-based replay filtering. These controls provide confidentiality, integrity, and replay resistance in the evaluated model.
