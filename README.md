@@ -151,6 +151,11 @@ python experiments/phase1_run_gateway.py --host 0.0.0.0 --port 9010
 ```
 Copy the printed `LAN IP hint` (example: `192.168.1.15:9010`).
 
+Protocol pairing (important):
+- Proposed client must use `experiments/phase1_run_gateway.py` on port `9010`.
+- Baseline client must use `experiments/phase1_run_baseline_gateway.py` on port `9020`.
+- Do not mix baseline client with proposed gateway (or vice versa), otherwise handshake fails with `Unsupported protocol version`.
+
 ### On phone (Termux recommended)
 ```bash
 pkg update
@@ -176,6 +181,7 @@ python experiments/phase1_phone_client.py \
   --messages 100 \
   --payload-size 128
 ```
+Use `--host <PC_LAN_IP>` with separate `--port` (recommended). `host:port` is accepted but easier to mistype.
 
 ### Analyze results
 On PC (or phone in same repo):
@@ -460,6 +466,11 @@ It now supports both protocols for fair comparison:
 
 ### A) Start gateway on system (PC/laptop)
 
+Important pairing rule:
+- Proposed pair: `phase1_run_gateway.py` (server, port `9010`) <-> `phase1_phone_client.py` (client, port `9010`)
+- Baseline pair: `phase1_run_baseline_gateway.py` (server, port `9020`) <-> `phase1_phone_baseline_client.py` (client, port `9020`)
+- If you connect a baseline client to proposed gateway (or proposed client to baseline gateway), the server will reject the handshake due to protocol version mismatch.
+
 #### Proposed gateway (default Phase 1)
 ```bash
 python experiments/phase1_run_gateway.py --host 0.0.0.0 --port 9010
@@ -526,6 +537,9 @@ python experiments/phase1_phone_client.py \
   --messages 100 \
   --payload-size 128
 ```
+Use `--host <PC_LAN_IP>` with separate `--port` (recommended). `host:port` is accepted but easier to mistype.
+
+Do not use baseline gateway with this command.
 
 #### B5) Run baseline protocol workload command (for fair comparison)
 ```bash
@@ -539,6 +553,9 @@ python experiments/phase1_phone_baseline_client.py \
   --messages 100 \
   --payload-size 128
 ```
+Use `--host <PC_LAN_IP>` with separate `--port` (recommended). `host:port` is accepted but easier to mistype.
+
+Do not use proposed gateway with this command.
 
 #### B6) Scenario list
 Run same command for each scenario by changing `--scenario`:
