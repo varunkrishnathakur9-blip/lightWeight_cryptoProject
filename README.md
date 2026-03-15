@@ -154,14 +154,15 @@ Copy the printed `LAN IP hint` (example: `192.168.1.15:9010`).
 ### On phone (Termux recommended)
 ```bash
 pkg update
-pkg install -y git python
+pkg install -y git python python-cryptography
 git clone <YOUR_REPO_URL>
 cd lightWeight_cryptoProject
-python -m venv .venv
+python -m venv --system-site-packages .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install -r requirements.txt
-pip install pyascon  # or: pip install ascon
+pip install ascon
+python -c "import cryptography; print(cryptography.__version__)"
+python -c "from lightweight_secure_channel.crypto.ascon_cipher import active_backend; print(active_backend())"
 ```
 
 Run workload (replace `<PC_LAN_IP>`):
@@ -501,11 +502,14 @@ cd lightWeight_cryptoProject
 #### B3) Install dependencies on phone
 From project root on phone:
 ```bash
-python -m venv .venv
+pkg update
+pkg install -y python-cryptography
+python -m venv --system-site-packages .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install -r requirements.txt
-pip install pyascon  # or: pip install ascon
+pip install ascon
+python -c "import cryptography; print(cryptography.__version__)"
+python -c "from lightweight_secure_channel.crypto.ascon_cipher import active_backend; print(active_backend())"
 ```
 
 #### B4) Run proposed protocol workload command

@@ -36,6 +36,16 @@ DEFAULT_POWER_PROFILE_W = {
 }
 
 
+def _normalize_host_port(host_arg: str, port_arg: int) -> tuple[str, int]:
+    """Accept either host or host:port and normalize to tuple."""
+    host = host_arg.strip()
+    if host.count(":") == 1 and not host.startswith("["):
+        maybe_host, maybe_port = host.rsplit(":", 1)
+        if maybe_port.isdigit():
+            return maybe_host, int(maybe_port)
+    return host, port_arg
+
+
 def _send_json(stream: BufferedRWPair, payload: dict[str, Any]) -> None:
     stream.write(json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n")
     stream.flush()
@@ -146,6 +156,9 @@ def main() -> None:
         help=f"Output CSV path (default: {DEFAULT_OUTPUT})",
     )
     args = parser.parse_args()
+    host, port = _normalize_host_port(args.host, args.port)
+    if host != args.host or port != args.port:
+        print(f"Normalized endpoint -> host={host}, port={port}")
 
     power_w_assumed = (
         args.power_w
@@ -161,13 +174,13 @@ def main() -> None:
     else:
         process = None
 
-    client = IoTClient(host=args.host, port=args.port, session_timeout=args.session_timeout)
+    client = IoTClient(host=host, port=port, session_timeout=args.session_timeout)
 
     total_resume_expected = 0
     total_resume_success = 0
     total_reconnect_success = 0
 
-    print(f"Starting proposed Phase 1 run -> host={args.host}:{args.port}, scenario={args.scenario}")
+    print(f"Starting proposed Phase 1 run -> host={host}:{port}, scenario={args.scenario}")
 
     for cycle in range(1, args.cycles + 1):
         print(f"Cycle {cycle}/{args.cycles}: connecting...")
