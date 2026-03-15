@@ -39,7 +39,10 @@ def main() -> None:
     args = parser.parse_args()
 
     local_ip = _detect_local_ip()
-    print("Starting Phase 1 gateway...")
+    print("Starting proposed Phase 1 gateway (ECC + ASCON + sponge-KDF)...")
+    if args.port == 9020:
+        print("Warning: port 9020 is reserved for baseline gateway in this project.")
+        print("If you are testing baseline client, run experiments/phase1_run_baseline_gateway.py instead.")
     print(f"Bind: {args.host}:{args.port}")
     print(f"LAN IP hint for phone client: {local_ip}:{args.port}")
     print("Press Ctrl+C to stop.")
