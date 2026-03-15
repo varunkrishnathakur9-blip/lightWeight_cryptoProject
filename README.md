@@ -135,8 +135,62 @@ Dependencies (from `requirements.txt`):
 - `matplotlib`
 - `psutil`
 
+Native ASCON backend (mandatory):
+- Install at least one: `pyascon` or `ascon`
+
 ---
 
+## 5A) Phone Quickstart (Phase 1)
+
+Use this if you want the fastest path to run phone-based experiments.
+
+### On PC (gateway)
+From project root:
+```bash
+python experiments/phase1_run_gateway.py --host 0.0.0.0 --port 9010
+```
+Copy the printed `LAN IP hint` (example: `192.168.1.15:9010`).
+
+### On phone (Termux recommended)
+```bash
+pkg update
+pkg install -y git python
+git clone <YOUR_REPO_URL>
+cd lightWeight_cryptoProject
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install pyascon  # or: pip install ascon
+```
+
+Run workload (replace `<PC_LAN_IP>`):
+```bash
+python experiments/phase1_phone_client.py \
+  --host <PC_LAN_IP> \
+  --port 9010 \
+  --device-id phone-1 \
+  --scenario stable_wifi \
+  --cycles 3 \
+  --messages 100 \
+  --payload-size 128
+```
+
+### Analyze results
+On PC (or phone in same repo):
+```bash
+python experiments/phase1_analyze.py
+```
+Outputs:
+- `results/tables/phase1_phone_metrics.csv`
+- `results/tables/phase1_phone_summary.csv`
+- `results/tables/phase1_phone_summary.md`
+- `results/graphs/phase1_handshake_latency.png`
+- `results/graphs/phase1_roundtrip_latency.png`
+- `results/graphs/phase1_throughput.png`
+- `results/graphs/phase1_resume_hit_rate.png`
+
+---
 ## 6) Setup Guide (Fresh Machine)
 
 ### Step A: Get the project
@@ -161,6 +215,7 @@ source .venv/bin/activate
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
+pip install pyascon  # or: pip install ascon
 ```
 
 ### Step D: Validate installation
@@ -249,7 +304,8 @@ Required source file for draft generation:
 
 In this implementation, performance is strongly affected by backend choice:
 - AES-GCM uses optimized native crypto backend via `cryptography`.
-- ASCON path is implemented in pure Python for research transparency.
+- ASCON AEAD plus sponge/hash/KDF paths require a native backend (`pyascon` or `ascon`).
+- Results should be interpreted after confirming active native backend via `active_backend()`.
 
 Implication:
 - baseline often appears faster on desktop-class CPUs.
@@ -369,6 +425,7 @@ Before production deployment, add:
 Setup:
 ```bash
 pip install -r requirements.txt
+pip install pyascon  # or: pip install ascon
 ```
 
 Tests:
@@ -390,3 +447,177 @@ Regenerate paper from summary table:
 ```bash
 python experiments/generate_paper.py
 ```
+
+---
+
+## 16) Phase 1 Real-Environment Run (Phone as IoT Device)
+
+This phase runs the gateway on your system and uses your phone as the IoT client.
+It now supports both protocols for fair comparison:
+- Proposed: ECC + ASCON + sponge-KDF + session resumption
+- Baseline: ECC + HKDF-SHA256 + AES-GCM
+
+### A) Start gateway on system (PC/laptop)
+
+#### Proposed gateway (default Phase 1)
+```bash
+python experiments/phase1_run_gateway.py --host 0.0.0.0 --port 9010
+```
+
+#### Baseline gateway
+```bash
+python experiments/phase1_run_baseline_gateway.py --host 0.0.0.0 --port 9020
+```
+
+Each command prints a `LAN IP hint` (example: `192.168.x.x:9010`).
+Use that IP in phone client commands.
+
+### B) Run phone client workload (on phone)
+
+#### B1) Best option: use Termux
+Termux is recommended for reproducible CLI-based experiments.
+
+Install Termux, then run:
+```bash
+pkg update
+pkg install -y git python
+```
+
+#### B2) Copy project to phone
+Choose one method:
+
+1. Git clone directly on phone (recommended):
+```bash
+git clone <YOUR_REPO_URL>
+cd lightWeight_cryptoProject
+```
+
+2. ZIP transfer from PC:
+- Zip the project folder on PC.
+- Transfer via USB/Drive/LocalSend.
+- Extract on phone.
+- `cd` into extracted `lightWeight_cryptoProject` directory in Termux.
+
+#### B3) Install dependencies on phone
+From project root on phone:
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install pyascon  # or: pip install ascon
+```
+
+#### B4) Run proposed protocol workload command
+Use your PC LAN IP from gateway output (`LAN IP hint`), not `127.0.0.1`.
+
+```bash
+python experiments/phase1_phone_client.py \
+  --host <PC_LAN_IP> \
+  --port 9010 \
+  --device-id phone-1 \
+  --device-class phone_midrange \
+  --scenario stable_wifi \
+  --cycles 3 \
+  --messages 100 \
+  --payload-size 128
+```
+
+#### B5) Run baseline protocol workload command (for fair comparison)
+```bash
+python experiments/phase1_phone_baseline_client.py \
+  --host <PC_LAN_IP> \
+  --port 9020 \
+  --device-id phone-1 \
+  --device-class phone_midrange \
+  --scenario stable_wifi \
+  --cycles 3 \
+  --messages 100 \
+  --payload-size 128
+```
+
+#### B6) Scenario list
+Run same command for each scenario by changing `--scenario`:
+- `stable_wifi`
+- `wifi_to_mobile`
+- `airplane_toggle`
+- `app_restart`
+
+For stronger results, execute each scenario multiple times.
+
+#### B7) Device class and energy estimation
+New fields are logged per cycle for energy/memory footprint by device class.
+
+Key flags:
+- `--device-class` (label in logs):
+  - `phone_midrange`
+  - `phone_flagship`
+  - `iot_mcu_wifi`
+  - `iot_mcu_ble`
+  - any custom label
+- `--power-w` (optional): override assumed average power in Watts for energy estimation
+
+If `--power-w` is omitted, a default profile is used based on `--device-class`.
+
+#### B8) If you prefer Pydroid (optional)
+- Open extracted project folder in Pydroid.
+- Install dependencies from terminal in app: `pip install -r requirements.txt` and `pip install pyascon` (or `pip install ascon`).
+- Run same client commands (single-line form if needed).
+
+### C) Analyze Phase 1 logs (on system or phone)
+```bash
+python experiments/phase1_analyze.py
+```
+
+Generated outputs:
+- `results/tables/phase1_phone_metrics.csv`
+- `results/tables/phase1_phone_summary.csv`
+- `results/tables/phase1_phone_summary.md`
+- `results/graphs/phase1_handshake_latency.png`
+- `results/graphs/phase1_roundtrip_latency.png`
+- `results/graphs/phase1_throughput.png`
+- `results/graphs/phase1_resume_hit_rate.png`
+- `results/graphs/phase1_deviceclass_memory.png`
+- `results/graphs/phase1_deviceclass_energy_per_message.png`
+
+### D) Firewall/network checklist
+- PC and phone must be on reachable network.
+- Allow inbound TCP on selected ports (`9010`, `9020`) on system firewall.
+- Use system LAN IP, not `127.0.0.1`, from phone.
+
+
+---
+
+## 17) Native ASCON Backend (Mandatory)
+
+ASCON operations in this project now **require** a native backend.
+There is no pure-Python fallback for AEAD, sponge hash, or KDF.
+
+Install at least one backend in your active environment:
+
+```bash
+python -m pip install pyascon
+# or
+python -m pip install ascon
+```
+
+Verify backend resolution:
+```bash
+python -c "from lightweight_secure_channel.crypto.ascon_cipher import active_backend; print(active_backend())"
+```
+
+Expected output example:
+- `native:pyascon`
+- or `native:ascon`
+
+If backend is missing, imports will fail intentionally with:
+- `RuntimeError: Native ASCON backend is mandatory but not found. Install pyascon or ascon.`
+
+Recommended pre-test check:
+```bash
+python -m pip show pyascon
+python -m pip show ascon
+python -m unittest discover -s tests -v
+```
+
+

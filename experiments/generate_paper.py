@@ -49,6 +49,20 @@ def _interpret(direction_less_is_better: bool, proposed: float, baseline: float,
     return f"{label} regressed by {-delta:.2f}% (lower than baseline)."
 
 
+def _backend_note() -> str:
+    """Describe ASCON backend status used by the proposed stack."""
+    try:
+        from lightweight_secure_channel.crypto.ascon_cipher import active_backend
+
+        backend = active_backend()
+        return f"Native ASCON backend detected for this run: `{backend}`."
+    except Exception as error:
+        return (
+            "ASCON backend could not be verified at draft-generation time "
+            f"({error.__class__.__name__}). Ensure native backend is installed and active."
+        )
+
+
 def generate_paper() -> Path:
     data = _load_summary()
 
@@ -73,6 +87,7 @@ def generate_paper() -> Path:
     encryption_text = _interpret(True, proposed_encrypt, baseline_encrypt, "Encryption latency")
     memory_text = _interpret(True, proposed_memory, baseline_memory, "Memory usage")
     throughput_text = _interpret(False, proposed_throughput, baseline_throughput, "Throughput")
+    backend_note = _backend_note()
 
     scenarios = sorted(data["baseline"].keys())
 
@@ -184,10 +199,11 @@ def generate_paper() -> Path:
     lines.append(memory_text)
     lines.append(throughput_text)
     lines.append(
-        "In this prototype, the dominant factor behind performance differences is implementation backend: AES-GCM and HKDF rely on optimized native cryptographic libraries, "
-        "while ASCON and sponge operations are currently executed in pure Python. Therefore, the measurements should be interpreted as system-prototype outcomes rather than "
-        "final algorithmic ceilings."
+        "In this prototype, backend implementation and protocol orchestration both shape performance: AES-GCM and HKDF rely on highly optimized native libraries, while "
+        "the proposed stack uses native ASCON primitives plus Python protocol logic. Therefore, measured gaps on host systems should be interpreted as full-system outcomes "
+        "(crypto backend + handshake/state machine + serialization/I/O), not raw algorithmic limits."
     )
+    lines.append(backend_note)
     lines.append("")
 
     lines.append("## Security Analysis")
@@ -210,7 +226,7 @@ def generate_paper() -> Path:
     lines.append("")
 
     lines.append("## Future Work")
-    lines.append("1. Integrate optimized/native ASCON backend and repeat the same benchmark matrix.")
+    lines.append("1. Further optimize native ASCON integration and reduce protocol-layer Python overhead, then repeat the benchmark matrix.")
     lines.append("2. Benchmark on target IoT hardware and include energy-per-message metrics.")
     lines.append("3. Add network impairment tests (loss, reordering, migration) for resumption robustness.")
     lines.append("4. Extend baseline set with ChaCha20-Poly1305 and DTLS 1.3 style profiles.")

@@ -1,12 +1,14 @@
-"""Sponge-based lightweight KDF for session material derivation."""
+"""Sponge-based lightweight KDF for session material derivation (native ASCON backend)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from lightweight_secure_channel.crypto.ascon_cipher import permute_state
+from lightweight_secure_channel.crypto.ascon_cipher import sponge_hash
 
-RATE_BYTES = 8
+STATE_WORDS = 5
+WORD_BYTES = 8
+STATE_BYTES = STATE_WORDS * WORD_BYTES
 
 
 @dataclass(frozen=True)
@@ -18,45 +20,36 @@ class KeyMaterial:
     nonce_seed: bytes
 
 
-def _pad(block: bytes, rate: int = RATE_BYTES) -> bytes:
-    if len(block) >= rate:
-        raise ValueError("Padding requires a partial block.")
-    return block + b"\x80" + b"\x00" * (rate - len(block) - 1)
+def _state_to_bytes(state: list[int]) -> bytes:
+    if len(state) != STATE_WORDS:
+        raise ValueError(f"state must have {STATE_WORDS} 64-bit words")
+    return b"".join(int(word & ((1 << 64) - 1)).to_bytes(WORD_BYTES, "big") for word in state)
+
+
+def _bytes_to_state(blob: bytes) -> list[int]:
+    if len(blob) != STATE_BYTES:
+        raise ValueError(f"state encoding must be {STATE_BYTES} bytes")
+    return [int.from_bytes(blob[index : index + WORD_BYTES], "big") for index in range(0, STATE_BYTES, WORD_BYTES)]
 
 
 def absorb(shared_secret: bytes, context_info: bytes = b"") -> list[int]:
-    """Absorb phase of the sponge-based KDF."""
-    state = [0x00400C0000000100, 0, 0, 0, 0]
-    permute_state(state, rounds=12)
-    payload = b"LSCP-SPONGE-KDF" + context_info + shared_secret
-
-    full_blocks = len(payload) // RATE_BYTES
-    for block_index in range(full_blocks):
-        block = payload[block_index * RATE_BYTES : (block_index + 1) * RATE_BYTES]
-        state[0] ^= int.from_bytes(block, "big")
-        permute_state(state, rounds=12)
-
-    remainder = payload[full_blocks * RATE_BYTES :]
-    state[0] ^= int.from_bytes(_pad(remainder), "big")
-    return state
+    """Absorb phase using native ASCON sponge/hash primitive."""
+    payload = b"LSCP-SPONGE-ABSORB" + context_info + shared_secret
+    return _bytes_to_state(sponge_hash(payload, output_length=STATE_BYTES))
 
 
 def permute(state: list[int]) -> list[int]:
-    """Permute phase of the sponge construction."""
-    permute_state(state, rounds=12)
+    """Permute phase using native ASCON sponge/hash primitive."""
+    material = sponge_hash(b"LSCP-SPONGE-PERMUTE" + _state_to_bytes(state), output_length=STATE_BYTES)
+    state[:] = _bytes_to_state(material)
     return state
 
 
 def squeeze(state: list[int], output_length: int = 48) -> bytes:
-    """Squeeze phase of the sponge construction."""
+    """Squeeze phase using native ASCON sponge/hash primitive."""
     if output_length <= 0:
         raise ValueError("output_length must be positive.")
-
-    output = bytearray()
-    while len(output) < output_length:
-        output.extend(state[0].to_bytes(RATE_BYTES, "big"))
-        permute_state(state, rounds=12)
-    return bytes(output[:output_length])
+    return sponge_hash(b"LSCP-SPONGE-SQUEEZE" + _state_to_bytes(state), output_length=output_length)
 
 
 def derive_keys(shared_secret: bytes, context_info: bytes = b"") -> KeyMaterial:

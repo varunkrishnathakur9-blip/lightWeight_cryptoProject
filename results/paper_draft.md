@@ -38,18 +38,19 @@ Workloads of 100, 500, and 1000 encrypted messages were executed. For each workl
 ### Consolidated Metrics
 | Metric | Baseline Avg | Proposed Avg | Relative Change (Proposed vs Baseline) |
 |---|---:|---:|---:|
-| Handshake Latency (ms) | 2.492 | 31.948 | 1181.85% |
-| Encryption Latency (ms) | 0.010 | 1.888 | 18507.64% |
-| Memory Usage (MB delta) | 0.010 | 0.002 | -79.17% |
-| CPU Utilization (%) | 38.21 | 96.71 | 153.08% |
-| Throughput (MB/s) | 9.275 | 0.040 | -99.57% |
+| Handshake Latency (ms) | 1.480 | 33.706 | 2177.23% |
+| Encryption Latency (ms) | 0.007 | 1.805 | 25242.02% |
+| Memory Usage (MB delta) | 0.012 | 0.054 | 346.43% |
+| CPU Utilization (%) | 50.22 | 98.26 | 95.66% |
+| Throughput (MB/s) | 11.284 | 0.042 | -99.63% |
 
 ## Results
-Handshake latency regressed by 1181.85% (higher than baseline).
-Encryption latency regressed by 18507.64% (higher than baseline).
-Memory usage improved by 79.17% (lower is better).
-Throughput regressed by 99.57% (lower than baseline).
-In this prototype, the dominant factor behind performance differences is implementation backend: AES-GCM and HKDF rely on optimized native cryptographic libraries, while ASCON and sponge operations are currently executed in pure Python. Therefore, the measurements should be interpreted as system-prototype outcomes rather than final algorithmic ceilings.
+Handshake latency regressed by 2177.23% (higher than baseline).
+Encryption latency regressed by 25242.02% (higher than baseline).
+Memory usage regressed by 346.43% (higher than baseline).
+Throughput regressed by 99.63% (lower than baseline).
+In this prototype, backend implementation and protocol orchestration both shape performance: AES-GCM and HKDF rely on highly optimized native libraries, while the proposed stack uses native ASCON primitives plus Python protocol logic. Therefore, measured gaps on host systems should be interpreted as full-system outcomes (crypto backend + handshake/state machine + serialization/I/O), not raw algorithmic limits.
+Native ASCON backend detected for this run: `native:ascon`.
 
 ## Security Analysis
 The protocol enforces authenticated encryption, transcript verification in handshakes, deterministic nonce derivation, and sequence-based replay filtering. These controls provide confidentiality, integrity, and replay resistance in the evaluated model.
@@ -59,7 +60,7 @@ Session resumption with connection identifiers introduces persistent-state attac
 The implemented evaluation pipeline provides reproducible, end-to-end comparison between a traditional AES-GCM secure channel and a research-oriented lightweight protocol using ASCON, sponge-KDF, and CID-style resumption. Current host-side measurements favor the baseline in raw performance, but the proposed architecture remains valuable for investigating lightweight protocol design, reconnect semantics, and constrained-friendly cryptographic composition.
 
 ## Future Work
-1. Integrate optimized/native ASCON backend and repeat the same benchmark matrix.
+1. Further optimize native ASCON integration and reduce protocol-layer Python overhead, then repeat the benchmark matrix.
 2. Benchmark on target IoT hardware and include energy-per-message metrics.
 3. Add network impairment tests (loss, reordering, migration) for resumption robustness.
 4. Extend baseline set with ChaCha20-Poly1305 and DTLS 1.3 style profiles.

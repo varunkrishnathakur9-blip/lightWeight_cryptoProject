@@ -1,0 +1,3 @@
+protocol,device_class,scenario,runs,handshake_latency_ms,encrypt_latency_ms,roundtrip_latency_ms,throughput_mbps,cpu_utilization_pct,memory_delta_mb,energy_per_message_mj,resume_hit_rate_pct,reconnect_success_rate_pct
+baseline,phone_midrange,stable_wifi,3,4.792233,0.021172,0.356219,0.297004,70.074575,0.808594,1.109212,0.000000,100.000000
+proposed,phone_midrange,stable_wifi,3,43.156767,1.687975,4.028975,0.019806,45.809531,0.393229,15.445433,100.000000,100.000000

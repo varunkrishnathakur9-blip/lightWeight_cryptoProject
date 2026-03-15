@@ -56,6 +56,27 @@ class BaselinePacket:
     ciphertext: bytes
     authentication_tag: bytes
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "protocol_version": self.protocol_version,
+            "session_id": self.session_id,
+            "sequence_number": self.sequence_number,
+            "nonce": self.nonce.hex(),
+            "ciphertext": self.ciphertext.hex(),
+            "authentication_tag": self.authentication_tag.hex(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "BaselinePacket":
+        return cls(
+            protocol_version=str(payload["protocol_version"]),
+            session_id=str(payload["session_id"]),
+            sequence_number=int(payload["sequence_number"]),
+            nonce=bytes.fromhex(payload["nonce"]),
+            ciphertext=bytes.fromhex(payload["ciphertext"]),
+            authentication_tag=bytes.fromhex(payload["authentication_tag"]),
+        )
+
 
 def _send_json(stream: BufferedRWPair, payload: dict[str, Any]) -> None:
     stream.write(json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n")
@@ -65,7 +86,7 @@ def _send_json(stream: BufferedRWPair, payload: dict[str, Any]) -> None:
 def _recv_json(stream: BufferedRWPair) -> dict[str, Any]:
     line = stream.readline()
     if not line:
-        raise EOFError("Connection closed during baseline handshake.")
+        raise EOFError("Connection closed while waiting for data.")
     return json.loads(line.decode("utf-8"))
 
 
