@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import socket
 import threading
 from typing import Optional
@@ -14,6 +15,9 @@ from lightweight_secure_channel.protocol.secure_channel import (
     send_secure_message,
 )
 from lightweight_secure_channel.protocol.session_manager import SessionManager
+
+
+logger = logging.getLogger(__name__)
 
 
 class GatewayServer:
@@ -48,7 +52,12 @@ class GatewayServer:
                     continue
                 except OSError:
                     break
-                self._handle_connection(connection)
+
+                try:
+                    self._handle_connection(connection)
+                except Exception:
+                    # Keep the server alive even if a client speaks a different protocol.
+                    logger.exception("Connection handling failed; continuing listener loop.")
 
     def start_in_thread(self) -> threading.Thread:
         """Start listener in a daemon thread."""
