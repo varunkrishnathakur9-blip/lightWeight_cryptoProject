@@ -51,8 +51,15 @@ demo/
 
 experiments/
   baseline_protocol.py
+  phase1_*.py
+  phase2_edge_bridge.py
+  phase2_analyze.py
   run_evaluation.py
   generate_paper.py
+
+firmware/
+  mega_r307s/
+    mega_r307s.ino
 
 tests/
   test_ecc.py
@@ -134,6 +141,7 @@ Dependencies (from `requirements.txt`):
 - `cryptography`
 - `matplotlib`
 - `psutil`
+- `pyserial` (required for Phase 2 serial bridge with Arduino Mega)
 
 Native ASCON backend (mandatory):
 - Install at least one: `pyascon` or `ascon`
@@ -640,5 +648,100 @@ python -m pip show pyascon
 python -m pip show ascon
 python -m unittest discover -s tests -v
 ```
+
+---
+
+## 18) Phase 2 Implementation (Mega2560 + R307 Hardware-in-the-Loop)
+
+Because Mega2560 cannot host the full ECC+ASCON endpoint stack directly, Phase 2 is implemented as:
+
+```text
+R307/R307S -> Mega2560 (UART) -> USB Serial -> Python Edge Bridge -> Gateway
+```
+
+This still provides real hardware sensor integration, reconnect behavior testing, and end-to-end secure telemetry measurement.
+
+### A) Firmware
+
+Use:
+- `firmware/mega_r307s/mega_r307s.ino`
+
+Behavior:
+- reads fingerprint events from `Serial1` (R307)
+- emits newline-delimited JSON sensor events over USB `Serial`
+- emits heartbeat lines with free RAM estimation
+
+Wiring (Mega2560):
+- `R307 TX -> RX1 (pin 19)`
+- `R307 RX -> TX1 (pin 18)`
+- `R307 VCC -> 5V`
+- `R307 GND -> GND`
+
+### B) Start Gateway (PC)
+
+Proposed protocol gateway:
+```bash
+python experiments/phase1_run_gateway.py --host 0.0.0.0 --port 9010
+```
+
+Baseline protocol gateway:
+```bash
+python experiments/phase1_run_baseline_gateway.py --host 0.0.0.0 --port 9020
+```
+
+Do not mix protocol pairs.
+
+### C) Run Edge Bridge (PC)
+
+Proposed (LSCP):
+```bash
+python experiments/phase2_edge_bridge.py \
+  --protocol proposed \
+  --host <PC_LAN_IP> \
+  --port 9010 \
+  --serial-port <COM_OR_TTY> \
+  --device-id mega-r307s-1 \
+  --device-class mega2560_r307s \
+  --scenario periodic \
+  --events 300 \
+  --reconnect-every 50
+```
+
+Baseline:
+```bash
+python experiments/phase2_edge_bridge.py \
+  --protocol baseline \
+  --host <PC_LAN_IP> \
+  --port 9020 \
+  --serial-port <COM_OR_TTY> \
+  --device-id mega-r307s-1 \
+  --device-class mega2560_r307s \
+  --scenario periodic \
+  --events 300 \
+  --reconnect-every 50
+```
+
+Useful options:
+- `--max-retries 1`
+- `--retry-backoff-ms 120`
+- `--power-w <WATTS>` for energy/message estimation
+- `--simulate` for dry-run without hardware
+
+### D) Analyze Phase 2 Results
+
+```bash
+python experiments/phase2_analyze.py
+```
+
+Outputs:
+- `results/tables/phase2_edge_metrics.csv`
+- `results/tables/phase2_summary.csv`
+- `results/tables/phase2_summary.md`
+- `results/graphs/phase2_sensor_to_ack_p50.png`
+- `results/graphs/phase2_sensor_to_ack_p95.png`
+- `results/graphs/phase2_handshake_latency.png`
+- `results/graphs/phase2_throughput_events.png`
+- `results/graphs/phase2_energy_per_message.png`
+- `results/graphs/phase2_resume_hit_rate.png`
 
 
