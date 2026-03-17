@@ -278,12 +278,124 @@ Presentation framing:
 - Proposed protocol currently demonstrates robust resume behavior and security composition.
 - Performance optimization remains active engineering work.
 
-## 16. Why Baseline Can Still Win Right Now
+## 16. Why Baseline Outperformed the Proposed Protocol (In Depth)
 
-1. AES-GCM path in `cryptography` uses highly optimized native primitives.
-2. Proposed flow has richer protocol/state behavior (CID checks, transcript tags, replay state handling).
-3. Python orchestration overhead remains significant in packet loop.
-4. Socket and JSON framing overhead affect throughput under small payloads.
+This section is the most important defensive part of your presentation.  
+Your results are not random; they are consistent with how both stacks are implemented today.
+
+### 16.1 Host-side (results/tables/metrics_summary.md)
+
+Observed pattern:
+- Baseline is much faster for handshake and encryption.
+- Baseline has much higher throughput.
+- Proposed shows higher CPU and memory overhead in several runs.
+
+Practical causes:
+
+1. Crypto implementation maturity difference:
+- Baseline uses `AESGCM` + `HKDF` from `cryptography` (OpenSSL-backed, highly optimized native path).
+- Proposed includes ASCON native calls, but still has additional Python-level protocol work around each operation.
+
+2. Per-message work difference:
+- Proposed channel does nonce derivation via sponge hash, packet AAD construction, replay checks, JSON envelope handling, and state persistence updates.
+- Baseline path is comparatively lean and benefits from very fast AEAD operation for short payload loops.
+
+3. Handshake path complexity:
+- Proposed handshake includes transcript hash over message history, finished-tag checks, and CID resumption logic.
+- Baseline handshake is simpler in this prototype harness.
+
+4. Benchmark harness effect:
+- Your workloads are many small packets; in this regime Python object churn + serialization overhead dominates quickly.
+- Raw primitive speed is not the only cost; orchestration costs become visible and strongly penalize richer protocol state machines.
+
+### 16.2 Phase 1 (Phone Real-Environment Summary)
+
+Observed pattern (stable_wifi sample):
+- Proposed has much higher handshake/encrypt/roundtrip latency.
+- Proposed throughput is lower.
+- Proposed energy/message is higher.
+- Proposed resume hit is excellent (100% in sample), baseline has no resume feature.
+
+Practical causes:
+
+1. Radio and socket scheduling on phone:
+- Mobile OS scheduling + Python runtime amplify per-message overhead.
+- Baseline completes packet processing faster, so radio active-time per message is shorter.
+
+2. Energy follows time-on-CPU and time-on-radio:
+- Energy/message rises when latency is higher, even if instantaneous power is similar.
+- Proposed currently spends more time in protocol logic around crypto, so energy/message increases.
+
+3. Feature tradeoff:
+- Proposed includes robust resumed-session behavior and stronger reconnect semantics.
+- Baseline appears faster because it is doing less protocol-level state work per reconnect/message in your current setup.
+
+### 16.3 Phase 2 (Mega2560 + R307 Hardware-in-the-Loop)
+
+Observed pattern:
+- Delivery and latency/throughput vary by protocol and run set.
+- Proposed remains slower in many edge-bridge metrics.
+- Resume behavior is visible in proposed runs.
+
+Practical causes:
+
+1. Edge-bridge architecture cost:
+- Crypto endpoint is still Python edge process, not on Mega2560.
+- Added serial ingest + bridge transformation + network forward path introduces extra latency points.
+
+2. Sensor timestamp domain mismatch risk:
+- Mega emits `millis()`-style uptime timestamps; edge logs use epoch ms.
+- If normalization is imperfect across mixed old/new rows, sensor->ACK latency can become inflated.
+- Always treat old mixed Phase 2 rows carefully and regenerate clean datasets after script changes.
+
+3. Mega2560 constraints:
+- Mega is used as sensor/event producer, not full crypto endpoint (by design constraints).
+- This validates real sensor integration and reconnect behavior, but does not remove Python orchestration overhead.
+
+### 16.4 Metric-by-Metric Root Cause Map
+
+Handshake latency (proposed worse):
+- transcript hash + finished-tag verification + CID resume bookkeeping + richer state transitions.
+
+Encryption latency (proposed worse):
+- extra per-packet logic around nonce derivation, packet object handling, JSON framing, replay/state checks.
+
+Roundtrip latency (proposed worse in Phase 1/2):
+- encryption overhead + serialization overhead + ACK decode/verify overhead accumulate.
+
+Throughput (proposed lower):
+- inverse effect of higher per-packet cost; small payload tests magnify this.
+
+Memory (proposed often higher):
+- more active state objects (session/CID/nonce/replay/tracking) and temporary serialization buffers.
+
+CPU (can be noisy but often higher for proposed):
+- more Python-side orchestration per event.
+
+Energy/message (proposed higher):
+- mostly a direct consequence of longer event completion time.
+
+Resume hit rate (proposed advantage):
+- proposed supports CID-style resumption; baseline intentionally has no equivalent mechanism in this project.
+
+### 16.5 Exactly How to Explain This to Panel
+
+Use this wording:
+- \"Baseline wins current raw speed because its stack is more optimized for this runtime path.\"
+- \"Proposed protocol contribution is secure lightweight composition + session continuity architecture + reproducible evaluation across host/phone/hardware-in-loop.\"
+- \"Current measurements are implementation-level outcomes, not upper bounds of the ASCON design space.\"
+
+Avoid saying:
+- \"ASCON is slower than AES always\" (too broad and not defensible).
+- \"Our protocol is better in all aspects\" (contradicts measured data).
+
+### 16.6 Actions That Directly Target the Gap
+
+1. Remove JSON framing overhead (binary frame format).
+2. Batch payload processing where appropriate.
+3. Separate benchmark of crypto primitive time vs protocol orchestration time.
+4. Keep Phase 2 datasets clean (new CSV per campaign) to avoid mixed timestamp artifacts.
+5. Expand resumed-session-heavy scenarios to quantify your strongest protocol feature.
 
 ## 17. Real-Environment Execution Rules (Critical)
 
