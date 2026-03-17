@@ -51,15 +51,15 @@ Phase 1 energy per message regressed by 1292.47% (higher than baseline).
 ### Phase 2 Hardware-in-the-Loop Summary (Mega2560 + R307)
 | Protocol | Device Class | Scenario | Delivered/Total | Delivery (%) | Handshake (ms) | Resume Hit (%) | Sensor->ACK p50 (ms) | Sensor->ACK p95 (ms) | Throughput (events/s) | Energy/msg (mJ) |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|
-| baseline | mega2560_r307s | periodic | 30/30 | 100.00 | 40.559 | 0.00 | 224.033 | 417.000 | 983.961 | 0.813 |
+| baseline | mega2560_r307s | periodic | 30/60 | 50.00 | 1716515967443.179 | 0.00 | 224.033 | 417.000 | 276.210 | 0.407 |
 | baseline | mega2560_sim | periodic | 5/5 | 100.00 | 4.442 | 0.00 | 1.000 | 1.000 | 2008.032 | 0.299 |
-| proposed | mega2560_r307s | periodic | 115/115 | 100.00 | 46.110 | 100.00 | 25687.713 | 116922.000 | 83.083 | 9.629 |
+| proposed | mega2560_r307s | periodic | 115/145 | 79.31 | 1612484624880.646 | 100.00 | 25687.713 | 116922.000 | 73.171 | 7.639 |
 | proposed | mega2560_sim | periodic | 5/5 | 100.00 | 37.815 | 100.00 | 7.800 | 9.000 | 127.600 | 4.702 |
 
-Phase 2 handshake latency regressed by 86.50% (higher than baseline).
+Phase 2 handshake latency improved by 6.06% (lower is better).
 Phase 2 sensor-to-ACK latency (p50) regressed by 11318.54% (higher than baseline).
-Phase 2 throughput regressed by 92.96% (lower than baseline).
-Phase 2 energy per message regressed by 1189.13% (higher than baseline).
+Phase 2 throughput regressed by 91.21% (lower than baseline).
+Phase 2 energy per message regressed by 1649.14% (higher than baseline).
 
 ## Results
 Handshake latency regressed by 2177.23% (higher than baseline).
