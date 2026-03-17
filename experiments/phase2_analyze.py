@@ -56,8 +56,32 @@ def _load_rows(path: pathlib.Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+
+
+def _sensor_ack_latency(row: dict[str, str], run_offsets: dict[str, float]) -> float:
+    provided = _safe_float(row, "sensor_to_ack_latency_ms")
+    if 0 < provided <= 600000:
+        return provided
+
+    ack = _safe_float(row, "ack_rx_ts_ms")
+    edge = _safe_float(row, "edge_rx_ts_ms")
+    raw = _safe_float(row, "sensor_ts_raw_ms", _safe_float(row, "sensor_ts_ms"))
+    if ack <= 0 or edge <= 0 or raw <= 0:
+        return 0.0
+
+    run_id = row.get("run_id", "")
+    offset = run_offsets.get(run_id)
+    if raw < 1_000_000_000_000 and offset is not None:
+        adjusted = ack - (raw + offset)
+        if 0 <= adjusted <= 600000:
+            return adjusted
+
+    return 0.0
+
 def _aggregate(rows: list[dict[str, str]]) -> list[dict[str, float | int | str]]:
     grouped: dict[tuple[str, str, str], list[dict[str, str]]] = defaultdict(list)
+    run_offsets: dict[str, float] = {}
+
     for row in rows:
         key = (
             row.get("protocol", "unknown"),
@@ -66,6 +90,12 @@ def _aggregate(rows: list[dict[str, str]]) -> list[dict[str, float | int | str]]
         )
         grouped[key].append(row)
 
+        run_id = row.get("run_id", "")
+        raw = _safe_float(row, "sensor_ts_raw_ms", _safe_float(row, "sensor_ts_ms"))
+        edge = _safe_float(row, "edge_rx_ts_ms")
+        if run_id and run_id not in run_offsets and 0 < raw < 1_000_000_000_000 and edge > 0:
+            run_offsets[run_id] = edge - raw
+
     summary: list[dict[str, float | int | str]] = []
     for (protocol, device_class, scenario), group in sorted(grouped.items()):
         delivered = [_safe_int(row, "send_success") for row in group]
@@ -73,9 +103,9 @@ def _aggregate(rows: list[dict[str, str]]) -> list[dict[str, float | int | str]]
         total_count = len(group)
 
         sensor_to_ack = [
-            _safe_float(row, "sensor_to_ack_latency_ms")
+            _sensor_ack_latency(row, run_offsets)
             for row in group
-            if _safe_float(row, "sensor_to_ack_latency_ms") > 0 and _safe_int(row, "send_success") == 1
+            if _sensor_ack_latency(row, run_offsets) > 0 and _safe_int(row, "send_success") == 1
         ]
         encrypt = [
             _safe_float(row, "encrypt_latency_ms")

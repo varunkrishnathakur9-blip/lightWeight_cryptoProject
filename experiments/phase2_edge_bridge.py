@@ -380,6 +380,7 @@ def _ensure_csv_header(path: Path) -> None:
                 "sensor_status",
                 "finger_id",
                 "confidence",
+                "sensor_ts_raw_ms",
                 "sensor_ts_ms",
                 "edge_rx_ts_ms",
                 "ack_rx_ts_ms",
@@ -410,6 +411,21 @@ def _ensure_csv_header(path: Path) -> None:
 def _append_row(path: Path, row: list[str | int | float]) -> None:
     with path.open("a", encoding="utf-8", newline="") as handle:
         csv.writer(handle).writerow(row)
+
+
+def _normalize_sensor_timestamp(
+    sensor_ts_ms: int,
+    edge_rx_ts_ms: int,
+    current_offset_ms: int | None,
+) -> tuple[int, int | None]:
+    """Normalize sensor timestamp to epoch ms when MCU emits uptime millis()."""
+    if sensor_ts_ms >= 1_000_000_000_000:
+        return sensor_ts_ms, current_offset_ms
+
+    offset = current_offset_ms
+    if offset is None:
+        offset = edge_rx_ts_ms - sensor_ts_ms
+    return sensor_ts_ms + offset, offset
 
 
 def _build_payload(event: SensorEvent, scenario: str, device_id: str) -> bytes:
@@ -485,6 +501,7 @@ def main() -> None:
 
     pending_handshake = protocol_handler.open_session()
     delivered = 0
+    sensor_epoch_offset_ms: int | None = None
 
     try:
         for event_index in range(1, args.events + 1):
@@ -495,6 +512,11 @@ def main() -> None:
 
             event = source.next_event()
             edge_rx_ts_ms = int(time.time() * 1000)
+            normalized_sensor_ts_ms, sensor_epoch_offset_ms = _normalize_sensor_timestamp(
+                sensor_ts_ms=event.sensor_ts_ms,
+                edge_rx_ts_ms=edge_rx_ts_ms,
+                current_offset_ms=sensor_epoch_offset_ms,
+            )
             payload = _build_payload(event=event, scenario=args.scenario, device_id=args.device_id)
 
             mem_before = process.memory_info().rss if process is not None else 0
@@ -567,7 +589,7 @@ def main() -> None:
                 except Exception:
                     pass
 
-            sensor_to_ack_latency_ms = (ack_rx_ts_ms - event.sensor_ts_ms) if ack_rx_ts_ms > 0 else 0
+            sensor_to_ack_latency_ms = (ack_rx_ts_ms - normalized_sensor_ts_ms) if ack_rx_ts_ms > 0 else 0
 
             _append_row(
                 output_path,
@@ -584,6 +606,7 @@ def main() -> None:
                     event.finger_id,
                     event.confidence,
                     event.sensor_ts_ms,
+                    normalized_sensor_ts_ms,
                     edge_rx_ts_ms,
                     ack_rx_ts_ms,
                     f"{handshake_latency_ms:.6f}",

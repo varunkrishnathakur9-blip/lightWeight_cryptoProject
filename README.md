@@ -304,6 +304,10 @@ Outputs generated:
 ## 9) Research Paper Draft Generation
 
 The paper draft is generated automatically by the evaluation pipeline.
+It now integrates all available result tiers:
+- host benchmark summary (`results/tables/metrics_summary.csv`)
+- Phase 1 summary (`results/tables/phase1_phone_summary.csv`) if present
+- Phase 2 summary (`results/tables/phase2_summary.csv`) if present
 
 To regenerate only the draft from existing summary data:
 ```bash
